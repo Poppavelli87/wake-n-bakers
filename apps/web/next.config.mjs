@@ -1,13 +1,7 @@
-import path from "path";
-import { fileURLToPath } from "url";
 import { withSentryConfig } from "@sentry/nextjs";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const monorepoRoot = path.join(__dirname, "..", "..");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  outputFileTracingRoot: monorepoRoot,
   reactStrictMode: true,
   transpilePackages: [
     "@wnb/content",
