@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "archetypes": {
+    "regular": {
+      "name": "Regular",
+      "patience": 90,
+      "orders": ["bacon_plate", "bacon_sandwich"],
+      "tip_base": 4
+    },
+    "picky": {
+      "name": "Picky Eater",
+      "patience": 70,
+      "orders": ["bacon_plate_well_done", "bacon_no_grease"],
+      "tip_base": 3
+    },
+    "vip": {
+      "name": "VIP Foodie",
+      "patience": 60,
+      "orders": ["bacon_flight"],
+      "tip_base": 12,
+      "review_weight": 3
+    }
+  }
+}

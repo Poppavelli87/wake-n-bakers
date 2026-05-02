@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+@theme {
+  /* === Savoryville core palette === */
+  /* Bacon — cured-red kitchen warmth */
+  --color-bacon-50: #fbe9e3;
+  --color-bacon-100: #f5cfc1;
+  --color-bacon-300: #d97250;
+  --color-bacon-500: #b23a1a;
+  --color-bacon-700: #8c1f2a;
+  --color-bacon-900: #5a1410;
+
+  /* Butter — warm light, mustard */
+  --color-butter-100: #fff3c4;
+  --color-butter-300: #fbe17b;
+  --color-butter-500: #f5c547;
+  --color-butter-700: #c89a23;
+
+  /* Skillet — cast iron */
+  --color-skillet-300: #8e7561;
+  --color-skillet-500: #6b4d39;
+  --color-skillet-700: #4a3528;
+  --color-skillet-900: #2b201a;
+
+  /* Linen — cream / paper */
+  --color-linen-50: #fefaf2;
+  --color-linen-100: #fbf3e3;
+  --color-linen-300: #f4e8d6;
+  --color-linen-500: #e0d4b5;
+
+  /* Sizzle — accent orange */
+  --color-sizzle-300: #f4a878;
+  --color-sizzle-500: #e8761f;
+  --color-sizzle-700: #b95514;
+
+  /* Steam — neutral grey */
+  --color-steam-300: #d5d7d2;
+  --color-steam-500: #9a9d96;
+  --color-steam-700: #5e605b;
+
+  /* === Hospitality dashboard 90s kitsch === */
+  --color-dash-teal: #2eb7b7;
+  --color-dash-magenta: #d5359d;
+  --color-dash-marigold: #f1a93c;
+  --color-dash-tile: #e0d4b5;
+  --color-dash-thumb: #f5c547;
+
+  /* === Type === */
+  --font-display: var(--font-display), "Fredoka", system-ui, sans-serif;
+  --font-body: var(--font-body), "Inter", system-ui, sans-serif;
+  --font-dashboard: "Marker Felt", "Chalkboard SE", "Comic Sans MS", cursive;
+
+  /* === Squash & stretch animations === */
+  --animate-bob: wnb-bob 0.9s ease-in-out infinite;
+  --animate-sizzle: wnb-sizzle 0.4s ease-in-out infinite;
+  --animate-meltdown-shake: wnb-shake 0.15s linear infinite;
+}
+
+@keyframes wnb-bob {
+  0%, 100% { transform: scaleY(1) scaleX(1) translateY(0); }
+  50%      { transform: scaleY(0.92) scaleX(1.06) translateY(2px); }
+}
+
+@keyframes wnb-sizzle {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 1; }
+}
+
+@keyframes wnb-shake {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  25%      { transform: translate(-1px, 1px) rotate(-0.5deg); }
+  50%      { transform: translate(1px, -1px) rotate(0.5deg); }
+  75%      { transform: translate(-1px, -1px) rotate(-0.5deg); }
+}
+
+/* anti-flash for the Phaser canvas mount */
+canvas {
+  display: block;
+}
+
+/* selection — diner mustard */
+::selection {
+  background: var(--color-butter-500);
+  color: var(--color-skillet-900);
+}

@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "contexts": {
+    "greet_customer": {
+      "options": [
+        {
+          "id": "warm_welcome",
+          "text": "Welcome to Wake 'n Bakers, friend!",
+          "tone": "polite",
+          "score": { "hospitality": 4 }
+        },
+        {
+          "id": "weather",
+          "text": "Lovely day for a shift, isn't it?",
+          "tone": "non_sequitur",
+          "score": { "hospitality": 2, "vibes": 3 }
+        },
+        {
+          "id": "trout",
+          "text": "Did I ever tell you about my trout?",
+          "tone": "wildcard",
+          "score": { "hospitality": 6, "vibes": 5 }
+        },
+        {
+          "id": "silent_tip_of_hat",
+          "text": "...",
+          "tone": "silent_beat",
+          "score": {}
+        }
+      ]
+    },
+    "witness_chaos": {
+      "options": [
+        {
+          "id": "no_problem",
+          "text": "All under control back here.",
+          "tone": "polite",
+          "score": { "hospitality": 2 }
+        },
+        {
+          "id": "team_hustle",
+          "text": "Great hustle, team!",
+          "tone": "non_sequitur",
+          "score": { "hospitality": 3, "vibes": 4 }
+        },
+        {
+          "id": "compliment_smell",
+          "text": "Smells incredible. Really.",
+          "tone": "wildcard",
+          "score": { "hospitality": 5, "disrupt_chris": -3 }
+        },
+        {
+          "id": "silent_shrug",
+          "text": "...",
+          "tone": "silent_beat",
+          "score": {}
+        }
+      ]
+    },
+    "exit_kitchen": {
+      "options": [
+        {
+          "id": "thanks_chris",
+          "text": "Thanks, Chris! Keep it up!",
+          "tone": "polite",
+          "score": { "hospitality": 3 }
+        },
+        {
+          "id": "spread_the_word",
+          "text": "Off to spread the good word!",
+          "tone": "non_sequitur",
+          "score": { "hospitality": 2, "vibes": 4 }
+        },
+        {
+          "id": "loud_announce",
+          "text": "BACON COMIN' UP, FOLKS!",
+          "tone": "wildcard",
+          "score": { "hospitality": 8, "disrupt_chris": -2 }
+        },
+        {
+          "id": "silent_salute",
+          "text": "...",
+          "tone": "silent_beat",
+          "score": {}
+        }
+      ]
+    }
+  }
+}

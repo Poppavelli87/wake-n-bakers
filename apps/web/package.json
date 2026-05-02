@@ -1,0 +1,36 @@
+{
+  "name": "@wnb/web",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf .next .turbo"
+  },
+  "dependencies": {
+    "@sentry/nextjs": "^8.50.0",
+    "@wnb/content": "workspace:*",
+    "@wnb/db": "workspace:*",
+    "@wnb/game": "workspace:*",
+    "@wnb/game-core": "workspace:*",
+    "@wnb/ui": "workspace:*",
+    "next": "^15.1.4",
+    "phaser": "^3.87.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/react": "^19.0.6",
+    "@types/react-dom": "^19.0.3",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^15.1.4",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.3"
+  }
+}

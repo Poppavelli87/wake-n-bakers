@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "shifts": {
+    "tuesday_lunch": {
+      "name": "Tuesday Lunch",
+      "duration_seconds": 240,
+      "customer_arrivals": [
+        { "at": 5, "archetype": "regular" },
+        { "at": 30, "archetype": "regular" },
+        { "at": 70, "archetype": "picky" },
+        { "at": 120, "archetype": "regular" },
+        { "at": 180, "archetype": "vip" }
+      ],
+      "herb_visit_window_seconds": [60, 90]
+    },
+    "friday_rush": {
+      "name": "Friday Rush",
+      "duration_seconds": 360,
+      "customer_arrivals": [
+        { "at": 5, "archetype": "regular" },
+        { "at": 12, "archetype": "regular" },
+        { "at": 25, "archetype": "picky" },
+        { "at": 40, "archetype": "regular" },
+        { "at": 55, "archetype": "vip" },
+        { "at": 80, "archetype": "regular" },
+        { "at": 100, "archetype": "picky" },
+        { "at": 130, "archetype": "vip" },
+        { "at": 180, "archetype": "regular" },
+        { "at": 220, "archetype": "vip" }
+      ],
+      "herb_visit_window_seconds": [45, 75]
+    },
+    "sunday_brunch": {
+      "name": "Sunday Brunch",
+      "duration_seconds": 300,
+      "customer_arrivals": [
+        { "at": 10, "archetype": "regular" },
+        { "at": 25, "archetype": "vip" },
+        { "at": 50, "archetype": "regular" },
+        { "at": 75, "archetype": "picky" },
+        { "at": 110, "archetype": "regular" },
+        { "at": 150, "archetype": "vip" },
+        { "at": 200, "archetype": "regular" }
+      ],
+      "herb_visit_window_seconds": [70, 100]
+    }
+  }
+}

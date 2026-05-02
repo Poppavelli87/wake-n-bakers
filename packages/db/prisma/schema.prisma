@@ -1,0 +1,115 @@
+// Wake 'n Baker's: Bacon Makers — database schema
+// Source-of-truth design lives in docs/design.md.
+//
+// Sprint 1 minimum: users, runs, scores, kitchens, quip_events.
+// Fields fill in across sprints; treat this as a vertical slice.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  CHRIS
+  HAMLET
+  HERB
+}
+
+enum ShiftKind {
+  TUESDAY_LUNCH
+  FRIDAY_RUSH
+  SUNDAY_BRUNCH
+  CUSTOM
+}
+
+enum RunOutcome {
+  COMPLETED
+  MELTDOWN
+  ABANDONED
+}
+
+model User {
+  id          String   @id @default(uuid())
+  authId      String?  @unique // Supabase auth.users.id
+  handle      String   @unique
+  displayName String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  runs       Run[]
+  kitchens   Kitchen[]
+  quipEvents QuipEvent[]
+}
+
+model Run {
+  id        String      @id @default(uuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role
+  shift     ShiftKind
+  kitchenId String?
+  kitchen   Kitchen?    @relation(fields: [kitchenId], references: [id], onDelete: SetNull)
+  startedAt DateTime    @default(now())
+  endedAt   DateTime?
+  outcome   RunOutcome?
+  meta      Json?
+
+  scores     Score[]
+  quipEvents QuipEvent[]
+
+  @@index([userId, startedAt])
+  @@index([shift])
+}
+
+model Score {
+  id              String   @id @default(uuid())
+  runId           String
+  run             Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  hospitality     Int      @default(0)
+  composureFinal  Int      @default(100)
+  heatPeak        Int      @default(0)
+  vibesAvg        Int      @default(50)
+  baconStolen     Int      @default(0)
+  customersServed Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([runId])
+  @@index([hospitality])
+}
+
+model Kitchen {
+  id        String   @id @default(uuid())
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  name      String
+  layout    Json // serialized tile/object positions for level editor
+  isPublic  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  runs Run[]
+
+  @@index([authorId])
+  @@index([isPublic, createdAt])
+}
+
+model QuipEvent {
+  id          String   @id @default(uuid())
+  runId       String
+  run         Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contextKey  String // 'greet_customer' | 'witness_chaos' | etc.
+  optionId    String // 'trout' | 'silent_shrug' | etc.
+  scoreDelta  Int      @default(0)
+  vibesDelta  Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([runId])
+  @@index([contextKey, optionId])
+}

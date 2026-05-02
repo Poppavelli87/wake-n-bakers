@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "templates": [
+    "Server told me a {duration}-minute story about a {animal}. Best meal of my life. {stars} stars.",
+    "There was {chaos_descriptor} happening behind the counter and I felt SEEN. {stars} stars.",
+    "Pretty sure I saw a pig running with my bacon but {herb_quote_short} so honestly, who cares. {stars}/5.",
+    "The big guy with the smile waved at me from across the room. I cried. {stars} stars.",
+    "Came for the bacon, stayed because {herb_quote_short}. {stars}/5.",
+    "I do not understand what I just witnessed. Returning every Tuesday for life. {stars} stars.",
+    "My waiter looked me dead in the eye and whispered \"...\" and frankly that's all the seasoning I needed. {stars}/5.",
+    "Lost a fork. Found a friend. {stars} stars."
+  ],
+  "tokens": {
+    "duration": [4, 6, 8, 10, 12, 14, 22],
+    "animal": [
+      "trout",
+      "ferret",
+      "barnyard goat",
+      "raccoon I knew once",
+      "particular hen",
+      "very specific squirrel"
+    ],
+    "chaos_descriptor": [
+      "a small grease fire",
+      "what looked like a wrestling match",
+      "a soot-faced angel",
+      "absolute culinary art",
+      "a meditation",
+      "an extended silence I will think about forever"
+    ]
+  }
+}
