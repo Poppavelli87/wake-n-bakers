@@ -1,21 +1,39 @@
 import * as Phaser from "phaser";
 import { gameStore } from "@wnb/game-core";
 import { SAVORYVILLE } from "../palette";
+import { Herb } from "../entities/Herb";
+import { Pam } from "../entities/Pam";
 
-// === Layout ===
+// === Canvas ===
 const W = 1280;
 const H = 720;
 
+// === Dollhouse cutaway ===
+// Top half = kitchen (top-down). Bottom half = dining floor (side-scroll).
+// Pass-through window straddles the seam at Y=340.
+const KITCHEN_BOTTOM = 340;
+const DINING_TOP = 380;
+const DINING_GROUND_Y = 640;
+
+// Kitchen positions (top-down)
 const PAN_X = 380;
-const PAN_Y = 360;
+const PAN_Y = 180;
 const PASS_X = 1100;
-const PASS_Y = 360;
+const PASS_Y = 280; // top edge of pass-through opening
 const PLATE_X = 220;
-const PLATE_Y = 200;
-const CUSTOMER_X = PASS_X + 90;
-const CUSTOMER_Y = PASS_Y;
+const PLATE_Y = 100;
 const HAMLET_LURK_X = 1100;
-const HAMLET_LURK_Y = 600;
+const HAMLET_LURK_Y = 280;
+const KITCHEN_BOUNDS = { minX: 30, maxX: W - 30, minY: 30, maxY: KITCHEN_BOTTOM - 20 };
+
+// Dining floor positions (side-scroll)
+const CUSTOMER_X = 1100;
+const CUSTOMER_Y = 555;
+
+// Doorway between kitchen and dining (left side)
+const DOOR_X = 100;
+
+// Bacon Run exit
 const BACON_RUN_EXIT_X = W + 60;
 
 // === Tuning ===
@@ -36,6 +54,9 @@ const HAMLET_STUN_MS = 3000;
 const BURNER_NUDGE_DURATION_MS = 5000;
 const PAN_SWAP_OFFSET_PX = 80;
 const PAN_SWAP_DURATION_MS = 6000;
+const QUIP_WHEEL_COOLDOWN_MS = 9000;
+const QUIP_WHEEL_AUTOCLOSE_MS = 6000;
+const HERB_CUSTOMER_PROXIMITY = 220;
 
 type CookState = "empty" | "cooking" | "done" | "ruined";
 type Carrying = "nothing" | "cooked_bacon";
@@ -56,6 +77,7 @@ type SabotageKind =
   | "butter_slick"
   | "bait_swap"
   | "timer_reset"
+  | "smoke_signal"
   | "bacon_run";
 
 interface Slick {
@@ -97,6 +119,7 @@ export class KitchenScene extends Phaser.Scene {
   private burnerSpeedMult = 1.0;
   private burnerSpeedUntil = 0;
   private ruinedX!: Phaser.GameObjects.Text;
+  private smokePuff!: Phaser.GameObjects.Container;
 
   // Plate stack
   private plateStack!: Phaser.GameObjects.Container;
@@ -110,6 +133,14 @@ export class KitchenScene extends Phaser.Scene {
   private customerPatienceFill: Phaser.GameObjects.Rectangle | null = null;
   private customerPatienceBg: Phaser.GameObjects.Rectangle | null = null;
   private lastCustomerResolvedAt = 0;
+
+  // Dining-floor entities
+  private herb!: Herb;
+  private pam!: Pam;
+
+  // Quip wheel
+  private lastQuipAt = 0;
+  private quipAutoCloseAt = 0;
 
   // UI
   private interactPrompt!: Phaser.GameObjects.Text;
@@ -134,12 +165,19 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.buildFloor();
+    this.buildKitchenFloor();
+    this.buildDiningFloor();
+    this.buildSeam();
+    this.buildDoorway();
     this.buildCookingStation();
     this.buildPassThrough();
     this.buildPlateStack();
     this.buildChris();
     this.buildHamlet();
+
+    // Dining-floor entities
+    this.herb = new Herb(this, 700, DINING_GROUND_Y);
+    this.pam = new Pam(this, 350, DINING_GROUND_Y);
 
     this.interactPrompt = this.add
       .text(0, 0, "", {
@@ -179,18 +217,14 @@ export class KitchenScene extends Phaser.Scene {
       right: kb.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT)
     };
 
-    // Chris context-sensitive interact
     kb.on("keydown-E", () => this.tryInteract());
     kb.on("keydown-SPACE", () => this.tryInteract());
-
-    // Chris defensive moves
     kb.on("keydown-Q", () => this.tryCounterWipe());
     kb.on("keydown-X", () => this.tryPanSlam());
-
-    // Mode toggle
     kb.on("keydown-P", () => this.toggleHamletController());
 
-    // Hamlet sabotage hotkeys (only fire when controller === player2)
+    // Number keys: when Quip Wheel is open, they go to QuipWheel (handled in React).
+    // When closed AND in P2 mode, they trigger Hamlet sabotages.
     kb.on("keydown-ONE", () => this.tryPlayer2Sabotage("salt_avalanche"));
     kb.on("keydown-TWO", () => this.tryPlayer2Sabotage("plate_clatter"));
     kb.on("keydown-THREE", () => this.tryPlayer2Sabotage("butter_slick"));
@@ -198,9 +232,9 @@ export class KitchenScene extends Phaser.Scene {
     kb.on("keydown-FIVE", () => this.tryPlayer2Sabotage("timer_reset"));
     kb.on("keydown-SIX", () => this.tryPlayer2Sabotage("pan_swap"));
     kb.on("keydown-SEVEN", () => this.tryPlayer2Sabotage("burner_nudge"));
+    kb.on("keydown-EIGHT", () => this.tryPlayer2Sabotage("smoke_signal"));
     kb.on("keydown-ENTER", () => this.tryPlayer2Sabotage("bacon_run"));
 
-    // Restart / leave
     kb.on("keydown-ESC", () => {
       window.location.href = "/";
     });
@@ -211,9 +245,9 @@ export class KitchenScene extends Phaser.Scene {
       }
     });
 
-    // Begin shift
     gameStore.getState().reset();
     gameStore.getState().startShift(5);
+    gameStore.getState().setQuipWheel(false);
     this.lastCustomerResolvedAt = this.time.now;
     this.scheduleNextSabotage();
     this.refreshModeBadge();
@@ -221,34 +255,109 @@ export class KitchenScene extends Phaser.Scene {
 
   // === Build helpers =======================================================
 
-  private buildFloor(): void {
-    this.add.rectangle(0, 0, W, H, SAVORYVILLE.steam300).setOrigin(0, 0);
+  private buildKitchenFloor(): void {
+    this.add
+      .rectangle(0, 0, W, KITCHEN_BOTTOM, SAVORYVILLE.steam300)
+      .setOrigin(0, 0);
     for (let x = 0; x < W; x += 80) {
-      this.add.line(0, 0, x, 0, x, H, SAVORYVILLE.steam500, 0.18);
+      this.add.line(0, 0, x, 0, x, KITCHEN_BOTTOM, SAVORYVILLE.steam500, 0.18);
     }
-    for (let y = 0; y < H; y += 80) {
+    for (let y = 0; y < KITCHEN_BOTTOM; y += 80) {
       this.add.line(0, 0, 0, y, W, y, SAVORYVILLE.steam500, 0.18);
     }
+  }
+
+  private buildDiningFloor(): void {
+    // Sky / wall background
+    this.add
+      .rectangle(0, DINING_TOP, W, DINING_GROUND_Y - DINING_TOP, SAVORYVILLE.linen300)
+      .setOrigin(0, 0);
+    // Floor / wood plank lines
+    this.add
+      .rectangle(0, DINING_GROUND_Y, W, H - DINING_GROUND_Y, SAVORYVILLE.skillet500)
+      .setOrigin(0, 0);
+    for (let x = 0; x < W; x += 120) {
+      this.add.line(0, 0, x, DINING_GROUND_Y, x, H, SAVORYVILLE.skillet900, 0.3);
+    }
+
+    // Booths along the back wall
+    for (let i = 0; i < 4; i++) {
+      const bx = 240 + i * 280;
+      // Booth back
+      this.add
+        .rectangle(bx, 540, 140, 80, SAVORYVILLE.bacon700)
+        .setStrokeStyle(3, SAVORYVILLE.skillet900);
+      // Table
+      this.add
+        .rectangle(bx, 605, 100, 8, SAVORYVILLE.skillet700)
+        .setStrokeStyle(2, SAVORYVILLE.skillet900);
+      this.add
+        .rectangle(bx, 615, 8, 22, SAVORYVILLE.skillet900);
+    }
+
+    // Window strip — sun rising over hills
+    this.add
+      .rectangle(W / 2, 430, W - 40, 70, SAVORYVILLE.butter100)
+      .setStrokeStyle(3, SAVORYVILLE.skillet900);
+    this.add.circle(W * 0.7, 440, 18, SAVORYVILLE.sizzle500);
+    this.add.arc(W * 0.7, 460, 28, 180, 360, false, SAVORYVILLE.sizzle700);
+  }
+
+  private buildSeam(): void {
+    // The "wall" between top-down kitchen and side-scroll dining
+    this.add
+      .rectangle(0, KITCHEN_BOTTOM, W, DINING_TOP - KITCHEN_BOTTOM, SAVORYVILLE.skillet900)
+      .setOrigin(0, 0);
+    this.add
+      .rectangle(0, KITCHEN_BOTTOM - 4, W, 4, SAVORYVILLE.skillet700)
+      .setOrigin(0, 0);
+    this.add
+      .rectangle(0, DINING_TOP, W, 4, SAVORYVILLE.skillet700)
+      .setOrigin(0, 0);
+  }
+
+  private buildDoorway(): void {
+    // Doorway opens through both halves at the left
+    const doorW = 60;
+    this.add
+      .rectangle(DOOR_X, KITCHEN_BOTTOM - 10, doorW, 20, SAVORYVILLE.linen100)
+      .setStrokeStyle(2, SAVORYVILLE.skillet700);
+    this.add
+      .rectangle(DOOR_X, DINING_TOP + 60, doorW, 120, SAVORYVILLE.bacon900, 0.35)
+      .setOrigin(0.5, 0)
+      .setStrokeStyle(3, SAVORYVILLE.skillet900);
+    this.add
+      .text(DOOR_X, DINING_TOP + 6, "DOOR", {
+        fontFamily: "Fredoka, sans-serif",
+        fontSize: "10px",
+        color: "#fbf3e3",
+        fontStyle: "bold"
+      })
+      .setOrigin(0.5, 0);
+
+    // Dining floor edges
+    this.add.rectangle(0, DINING_TOP, 6, H - DINING_TOP, SAVORYVILLE.skillet900).setOrigin(0, 0);
+    this.add.rectangle(W - 6, DINING_TOP, 6, H - DINING_TOP, SAVORYVILLE.skillet900).setOrigin(0, 0);
+
+    // Kitchen edges
+    this.add.rectangle(0, 0, 6, KITCHEN_BOTTOM, SAVORYVILLE.skillet900).setOrigin(0, 0);
+    this.add.rectangle(W - 6, 0, 6, KITCHEN_BOTTOM, SAVORYVILLE.skillet900).setOrigin(0, 0);
     this.add.rectangle(0, 0, W, 6, SAVORYVILLE.skillet900).setOrigin(0, 0);
     this.add.rectangle(0, H - 6, W, 6, SAVORYVILLE.skillet900).setOrigin(0, 0);
-    this.add.rectangle(0, 0, 6, H, SAVORYVILLE.skillet900).setOrigin(0, 0);
-    this.add.rectangle(W - 6, 0, 6, H, SAVORYVILLE.skillet900).setOrigin(0, 0);
   }
 
   private buildCookingStation(): void {
-    // Counter underneath stays put
     this.add
-      .rectangle(PAN_X, PAN_Y, 180, 150, SAVORYVILLE.skillet700)
+      .rectangle(PAN_X, PAN_Y, 180, 130, SAVORYVILLE.skillet700)
       .setStrokeStyle(3, SAVORYVILLE.skillet900);
     this.add
-      .circle(PAN_X, PAN_Y, 52, SAVORYVILLE.sizzle700, 0.55)
+      .circle(PAN_X, PAN_Y, 50, SAVORYVILLE.sizzle700, 0.55)
       .setStrokeStyle(2, SAVORYVILLE.skillet900);
 
-    // Pan + bacon move together when pan_swap fires
     this.panContainer = this.add.container(PAN_X, PAN_Y);
-    const panOuter = this.add.circle(0, 0, 40, SAVORYVILLE.skillet900);
-    const panInner = this.add.circle(0, 0, 34, 0x1a1410);
-    const panHandle = this.add.rectangle(52, 0, 36, 8, SAVORYVILLE.skillet900);
+    const panOuter = this.add.circle(0, 0, 38, SAVORYVILLE.skillet900);
+    const panInner = this.add.circle(0, 0, 32, 0x1a1410);
+    const panHandle = this.add.rectangle(50, 0, 36, 8, SAVORYVILLE.skillet900);
     this.panBacon = this.add
       .rectangle(0, 0, 42, 10, SAVORYVILLE.bacon500)
       .setStrokeStyle(1, SAVORYVILLE.bacon900)
@@ -256,17 +365,17 @@ export class KitchenScene extends Phaser.Scene {
     this.panContainer.add([panOuter, panInner, panHandle, this.panBacon]);
 
     this.cookBarBg = this.add
-      .rectangle(PAN_X, PAN_Y - 68, 104, 14, SAVORYVILLE.skillet900)
+      .rectangle(PAN_X, PAN_Y - 60, 104, 14, SAVORYVILLE.skillet900)
       .setVisible(false);
     this.cookBar = this.add
-      .rectangle(PAN_X - 50, PAN_Y - 68, 0, 9, SAVORYVILLE.sizzle500)
+      .rectangle(PAN_X - 50, PAN_Y - 60, 0, 9, SAVORYVILLE.sizzle500)
       .setOrigin(0, 0.5)
       .setVisible(false);
 
     this.ruinedX = this.add
       .text(PAN_X, PAN_Y, "X", {
         fontFamily: "Fredoka, sans-serif",
-        fontSize: "48px",
+        fontSize: "44px",
         color: "#b23a1a",
         fontStyle: "bold"
       })
@@ -274,40 +383,48 @@ export class KitchenScene extends Phaser.Scene {
       .setVisible(false);
 
     this.add
-      .text(PAN_X, PAN_Y + 90, "STOVE  [E to cook]", {
+      .text(PAN_X, PAN_Y + 80, "STOVE  [E to cook]", {
         fontFamily: "Fredoka, sans-serif",
-        fontSize: "12px",
+        fontSize: "11px",
         color: "#4a3528",
         fontStyle: "bold"
       })
       .setOrigin(0.5, 0);
+
+    // Smoke puff (smoke_signal sabotage visual)
+    this.smokePuff = this.add.container(PAN_X, PAN_Y - 30).setVisible(false).setDepth(40);
+    for (let i = 0; i < 3; i++) {
+      this.smokePuff.add(
+        this.add.circle(i * 8 - 8, -i * 6, 12 + i * 2, SAVORYVILLE.steam500, 0.85)
+      );
+    }
   }
 
   private buildPassThrough(): void {
+    // Vertical opening straddling the seam, viewed from the kitchen
+    const passW = 130;
+    const passH = 130;
+    // Frame (kitchen side, seen at bottom of top half + into seam)
     this.add
-      .rectangle(PASS_X, PASS_Y, 130, 230, SAVORYVILLE.butter300)
+      .rectangle(PASS_X, PASS_Y + 30, passW, passH, SAVORYVILLE.butter300)
       .setStrokeStyle(4, SAVORYVILLE.skillet900);
+    // Sill
     this.add
-      .rectangle(PASS_X, PASS_Y - 130, 140, 22, SAVORYVILLE.skillet700)
+      .rectangle(PASS_X, PASS_Y - 35, passW + 10, 22, SAVORYVILLE.skillet700)
       .setStrokeStyle(3, SAVORYVILLE.skillet900);
     this.add
-      .text(PASS_X, PASS_Y - 130, "PASS", {
+      .text(PASS_X, PASS_Y - 35, "PASS", {
         fontFamily: "Fredoka, sans-serif",
-        fontSize: "14px",
+        fontSize: "13px",
         color: "#fbf3e3",
         fontStyle: "bold"
       })
       .setOrigin(0.5, 0.5);
+
+    // Cutout that extends into the dining-side seam
     this.add
-      .rectangle(PASS_X + 70, H / 2, 100, H - 12, SAVORYVILLE.linen300, 0.5)
-      .setOrigin(0, 0.5);
-    this.add
-      .text(PASS_X + 120, 30, "DINING FLOOR\n(Sprint 4)", {
-        fontFamily: "Fredoka, sans-serif",
-        fontSize: "10px",
-        color: "#6b4d39"
-      })
-      .setOrigin(0, 0);
+      .rectangle(PASS_X, DINING_TOP - 18, passW - 20, 36, SAVORYVILLE.butter300)
+      .setStrokeStyle(3, SAVORYVILLE.skillet900);
   }
 
   private buildPlateStack(): void {
@@ -328,7 +445,7 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   private buildChris(): void {
-    this.chris = this.add.container(W / 2, H / 2);
+    this.chris = this.add.container(W / 2, 180);
     const body = this.add
       .circle(0, 0, 22, SAVORYVILLE.linen100)
       .setStrokeStyle(3, SAVORYVILLE.skillet900);
@@ -352,7 +469,6 @@ export class KitchenScene extends Phaser.Scene {
       .setVisible(false);
     this.chris.add(this.chrisFloatItem);
 
-    // Frying pan visible only during chase
     this.chrisFryingPan = this.add
       .rectangle(28, 4, 22, 10, SAVORYVILLE.skillet900)
       .setVisible(false);
@@ -428,6 +544,10 @@ export class KitchenScene extends Phaser.Scene {
     this.updateChaseVisuals();
     this.updateHamletStun();
     this.updateBaconRunHamlet(dt);
+    this.herb.update(dt);
+    this.pam.update(dt, this.herb.x, this.herb.isInDining());
+    this.checkQuipWheelTrigger();
+    this.maybeAutoCloseQuipWheel();
   }
 
   // === Chris movement ======================================================
@@ -440,7 +560,6 @@ export class KitchenScene extends Phaser.Scene {
     let dy = 0;
 
     if (this.time.now < this.chrisSlipUntil) {
-      // Sliding — locked direction, sped up, no input
       dx = this.chrisSlipVel.x;
       dy = this.chrisSlipVel.y;
       speed = CHRIS_SPEED * 1.6;
@@ -449,7 +568,6 @@ export class KitchenScene extends Phaser.Scene {
       if (this.keysChris.down.isDown) dy += 1;
       if (this.keysChris.left.isDown) dx -= 1;
       if (this.keysChris.right.isDown) dx += 1;
-      // In solo mode arrow keys also drive Chris
       if (gameStore.getState().hamletController === "ai") {
         if (this.keysHamlet.up.isDown) dy -= 1;
         if (this.keysHamlet.down.isDown) dy += 1;
@@ -462,15 +580,21 @@ export class KitchenScene extends Phaser.Scene {
       dy /= len;
     }
 
-    const nx = Phaser.Math.Clamp(this.chris.x + dx * speed * dt, 30, W - 110);
-    const ny = Phaser.Math.Clamp(this.chris.y + dy * speed * dt, 30, H - 30);
+    const nx = Phaser.Math.Clamp(
+      this.chris.x + dx * speed * dt,
+      KITCHEN_BOUNDS.minX,
+      KITCHEN_BOUNDS.maxX
+    );
+    const ny = Phaser.Math.Clamp(
+      this.chris.y + dy * speed * dt,
+      KITCHEN_BOUNDS.minY,
+      KITCHEN_BOUNDS.maxY
+    );
     this.chris.setPosition(nx, ny);
 
-    // Slip-on-slick check
     if (this.time.now > this.chrisSlipUntil) {
       for (const slick of this.slicks) {
         if (Phaser.Math.Distance.Between(nx, ny, slick.x, slick.y) < 32) {
-          // Slip in current movement direction
           this.chrisSlipUntil = this.time.now + 600;
           this.chrisSlipVel = { x: dx, y: dy };
           gameStore.getState().applySabotage(2, "slipped_on_slick");
@@ -494,18 +618,12 @@ export class KitchenScene extends Phaser.Scene {
     return { x: this.panContainer.x, y: this.panContainer.y };
   }
 
-  private nearestInteractable(): {
-    kind: "stove" | "pass" | null;
-  } {
+  private nearestInteractable(): { kind: "stove" | "pass" | null } {
     const stove = this.panWorldXY();
     const stoveDist = this.dist(this.chris, stove);
     const passDist = this.dist(this.chris, { x: PASS_X, y: PASS_Y });
-    if (stoveDist <= INTERACT_RANGE && stoveDist <= passDist) {
-      return { kind: "stove" };
-    }
-    if (passDist <= INTERACT_RANGE) {
-      return { kind: "pass" };
-    }
+    if (stoveDist <= INTERACT_RANGE && stoveDist <= passDist) return { kind: "stove" };
+    if (passDist <= INTERACT_RANGE) return { kind: "pass" };
     return { kind: null };
   }
 
@@ -513,10 +631,7 @@ export class KitchenScene extends Phaser.Scene {
     const { kind } = this.nearestInteractable();
     let label = "";
     if (kind === "stove") {
-      if (
-        this.chrisCarrying === "nothing" &&
-        (this.cookState === "empty" || this.cookState === "ruined")
-      ) {
+      if (this.chrisCarrying === "nothing" && (this.cookState === "empty" || this.cookState === "ruined")) {
         label = "[E] Start cooking";
       } else if (this.cookState === "cooking") {
         label = "Cooking…";
@@ -545,11 +660,8 @@ export class KitchenScene extends Phaser.Scene {
 
   private interactStove(): void {
     if (this.chrisCarrying === "cooked_bacon") return;
-    if (this.cookState === "empty" || this.cookState === "ruined") {
-      this.startCooking();
-    } else if (this.cookState === "done" && this.chrisCarrying === "nothing") {
-      this.plateUp();
-    }
+    if (this.cookState === "empty" || this.cookState === "ruined") this.startCooking();
+    else if (this.cookState === "done" && this.chrisCarrying === "nothing") this.plateUp();
   }
 
   private interactPass(): void {
@@ -567,15 +679,12 @@ export class KitchenScene extends Phaser.Scene {
 
   private tryCounterWipe(): void {
     if (gameStore.getState().status !== "playing") return;
-    const idx = this.slicks.findIndex(
-      (slick) => this.dist(this.chris, slick) < 60
-    );
+    const idx = this.slicks.findIndex((slick) => this.dist(this.chris, slick) < 60);
     if (idx === -1) return;
     const slick = this.slicks[idx];
     if (slick) {
       slick.obj.destroy();
       this.slicks.splice(idx, 1);
-      // Small composure recovery — reward for awareness
       gameStore.getState().cookSuccess();
     }
   }
@@ -584,9 +693,7 @@ export class KitchenScene extends Phaser.Scene {
     if (gameStore.getState().status !== "playing") return;
     if (this.dist(this.chris, this.hamlet) > PAN_SLAM_RANGE) return;
     this.stunHamlet();
-    // If chasing, the chase ends clean
     if (gameStore.getState().heat.chasing) {
-      // If Hamlet had grabbed the bacon, drop it back where he was hit
       if (
         this.hamletState === "bacon_run_grabbing" ||
         this.hamletState === "bacon_run_escaping"
@@ -595,7 +702,6 @@ export class KitchenScene extends Phaser.Scene {
       }
       gameStore.getState().endChaseClean();
     }
-    // Smash visual
     const flash = this.add
       .circle(this.hamlet.x, this.hamlet.y, 50, SAVORYVILLE.butter500, 0.7)
       .setDepth(50);
@@ -671,7 +777,6 @@ export class KitchenScene extends Phaser.Scene {
       this.cookBar.setVisible(false);
       gameStore.getState().cookSuccess();
     } else if (progress < 0) {
-      // Burner nudge backwards — visual cue
       this.cookBar.width = 0;
     }
   }
@@ -698,11 +803,7 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   private updatePanSwap(): void {
-    if (
-      this.panSwappedUntil > 0 &&
-      this.time.now > this.panSwappedUntil
-    ) {
-      // Slide back home
+    if (this.panSwappedUntil > 0 && this.time.now > this.panSwappedUntil) {
       this.tweens.add({
         targets: this.panContainer,
         x: this.panBaseX,
@@ -717,25 +818,20 @@ export class KitchenScene extends Phaser.Scene {
   // === Hamlet AI ===========================================================
 
   private scheduleNextSabotage(): void {
-    const delay = Phaser.Math.Between(
-      SABOTAGE_INTERVAL_MIN_MS,
-      SABOTAGE_INTERVAL_MAX_MS
-    );
+    const delay = Phaser.Math.Between(SABOTAGE_INTERVAL_MIN_MS, SABOTAGE_INTERVAL_MAX_MS);
     this.hamletNextSabotageAt = this.time.now + delay;
   }
 
   private aiPickSabotage(): SabotageKind {
-    // Tier-3 if cooked bacon is there and no chase active — opportunistic
     const s = gameStore.getState();
-    if (this.cookState === "done" && !s.heat.chasing && Math.random() < 0.5) {
+    if (this.cookState === "done" && !s.heat.chasing && Math.random() < 0.45) {
       return "bacon_run";
     }
-    // Tier-2 mix
     const tier2Roll = Math.random();
-    if (this.cookState === "cooking" && tier2Roll < 0.25) return "timer_reset";
-    if (this.cookState === "done" && tier2Roll < 0.4) return "bait_swap";
+    if (this.cookState === "cooking" && tier2Roll < 0.2) return "timer_reset";
+    if (this.cookState === "done" && tier2Roll < 0.35) return "bait_swap";
+    if ((this.cookState === "cooking" || this.cookState === "done") && tier2Roll < 0.45) return "smoke_signal";
     if (tier2Roll < 0.55) return "butter_slick";
-    // Tier-1 mix
     if (this.cookState === "cooking" && Math.random() < 0.55) return "salt_avalanche";
     if (this.cookState === "cooking" && Math.random() < 0.5) return "burner_nudge";
     if (!this.plateStackToppled && Math.random() < 0.5) return "plate_clatter";
@@ -749,25 +845,27 @@ export class KitchenScene extends Phaser.Scene {
       case "pan_swap":
       case "timer_reset":
       case "bait_swap":
+      case "smoke_signal":
       case "bacon_run":
         return { x: this.panContainer.x, y: this.panContainer.y - 6 };
       case "plate_clatter":
         return { x: PLATE_X, y: PLATE_Y };
       case "butter_slick": {
-        // Drop near a chokepoint between Chris and pass-through
         const cx = (this.chris.x + PASS_X) / 2;
-        return { x: Phaser.Math.Clamp(cx, 200, PASS_X - 100), y: PASS_Y };
+        return { x: Phaser.Math.Clamp(cx, 200, PASS_X - 100), y: PASS_Y - 30 };
       }
     }
   }
 
   private handleAIHamlet(dt: number): void {
     if (this.hamletState === "stunned") return;
-    if (this.hamletState === "bacon_run_grabbing" || this.hamletState === "bacon_run_escaping") {
-      return; // handled in updateBaconRunHamlet
+    if (
+      this.hamletState === "bacon_run_grabbing" ||
+      this.hamletState === "bacon_run_escaping"
+    ) {
+      return;
     }
 
-    // Walk toward target
     const dx = this.hamletTarget.x - this.hamlet.x;
     const dy = this.hamletTarget.y - this.hamlet.y;
     const d = Math.sqrt(dx * dx + dy * dy);
@@ -804,7 +902,7 @@ export class KitchenScene extends Phaser.Scene {
       this.hamletState === "bacon_run_grabbing" ||
       this.hamletState === "bacon_run_escaping"
     ) {
-      return; // bacon-run animations override input
+      return;
     }
     let dx = 0;
     let dy = 0;
@@ -812,27 +910,28 @@ export class KitchenScene extends Phaser.Scene {
     if (this.keysHamlet.down.isDown) dy += 1;
     if (this.keysHamlet.left.isDown) dx -= 1;
     if (this.keysHamlet.right.isDown) dx += 1;
-    if (dx !== 0 || dy !== 0) {
-      const len = Math.sqrt(dx * dx + dy * dy);
-      dx /= len;
-      dy /= len;
-      const nx = Phaser.Math.Clamp(
-        this.hamlet.x + dx * HAMLET_PLAYER_SPEED * dt,
-        30,
-        W - 30
-      );
-      const ny = Phaser.Math.Clamp(
-        this.hamlet.y + dy * HAMLET_PLAYER_SPEED * dt,
-        30,
-        H - 30
-      );
-      this.hamlet.setPosition(nx, ny);
-    }
+    if (dx === 0 && dy === 0) return;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    dx /= len;
+    dy /= len;
+    const nx = Phaser.Math.Clamp(
+      this.hamlet.x + dx * HAMLET_PLAYER_SPEED * dt,
+      KITCHEN_BOUNDS.minX,
+      KITCHEN_BOUNDS.maxX
+    );
+    const ny = Phaser.Math.Clamp(
+      this.hamlet.y + dy * HAMLET_PLAYER_SPEED * dt,
+      KITCHEN_BOUNDS.minY,
+      KITCHEN_BOUNDS.maxY
+    );
+    this.hamlet.setPosition(nx, ny);
   }
 
   private tryPlayer2Sabotage(kind: SabotageKind): void {
     const s = gameStore.getState();
     if (s.status !== "playing") return;
+    // When Quip Wheel is open, number keys should pass through to the wheel
+    if (s.quipWheelOpen && (kind !== "bacon_run")) return;
     if (s.hamletController !== "player2") return;
     if (this.hamletState === "stunned") return;
     if (
@@ -841,9 +940,7 @@ export class KitchenScene extends Phaser.Scene {
     )
       return;
 
-    // Proximity check for context-bound sabotages
-    const panClose =
-      this.dist(this.hamlet, this.panWorldXY()) < INTERACT_RANGE * 1.2;
+    const panClose = this.dist(this.hamlet, this.panWorldXY()) < INTERACT_RANGE * 1.2;
     const platesClose =
       this.dist(this.hamlet, { x: PLATE_X, y: PLATE_Y }) < INTERACT_RANGE * 1.2;
 
@@ -853,6 +950,7 @@ export class KitchenScene extends Phaser.Scene {
       case "pan_swap":
       case "timer_reset":
       case "bait_swap":
+      case "smoke_signal":
       case "bacon_run":
         if (!panClose) return;
         break;
@@ -860,12 +958,11 @@ export class KitchenScene extends Phaser.Scene {
         if (!platesClose) return;
         break;
       case "butter_slick":
-        // anywhere
         break;
     }
 
     this.hamletPlannedSabotage = kind;
-    this.executeSabotage(kind, /*p2*/ true);
+    this.executeSabotage(kind, true);
   }
 
   // === Execute sabotage ====================================================
@@ -889,7 +986,6 @@ export class KitchenScene extends Phaser.Scene {
       duration: SABOTAGE_TELEGRAPH_MS / 6
     });
 
-    // P2 sabotages have a shorter telegraph (player has agency, less hand-holding)
     const tel = p2 ? Math.round(SABOTAGE_TELEGRAPH_MS * 0.55) : SABOTAGE_TELEGRAPH_MS;
 
     this.time.delayedCall(tel, () => {
@@ -898,7 +994,6 @@ export class KitchenScene extends Phaser.Scene {
       if (gameStore.getState().status !== "playing") return;
       this.applySabotageEffect(kind);
       if (!p2) {
-        // AI flees back to lurk; P2 keeps control
         this.hamletTarget = { x: HAMLET_LURK_X, y: HAMLET_LURK_Y };
         this.hamletState = "flee";
       }
@@ -921,6 +1016,8 @@ export class KitchenScene extends Phaser.Scene {
         return "FAKE!";
       case "timer_reset":
         return "RESET!";
+      case "smoke_signal":
+        return "SMOKE!";
       case "bacon_run":
         return "RUN!";
     }
@@ -949,6 +1046,9 @@ export class KitchenScene extends Phaser.Scene {
       case "timer_reset":
         this.applyTimerReset();
         break;
+      case "smoke_signal":
+        this.applySmokeSignal();
+        break;
     }
   }
 
@@ -958,10 +1058,7 @@ export class KitchenScene extends Phaser.Scene {
     if (this.cookState === "cooking" || this.cookState === "done") {
       this.cookState = "ruined";
       this.tweens.killTweensOf(this.panBacon);
-      this.panBacon
-        .setVisible(true)
-        .setFillStyle(SAVORYVILLE.skillet500)
-        .setAlpha(1);
+      this.panBacon.setVisible(true).setFillStyle(SAVORYVILLE.skillet500).setAlpha(1);
       this.cookBarBg.setVisible(false);
       this.cookBar.setVisible(false);
       this.ruinedX.setVisible(true);
@@ -995,8 +1092,6 @@ export class KitchenScene extends Phaser.Scene {
   }
 
   private applyBurnerNudge(): void {
-    // Random direction: cook way faster (still gets done but Chris loses agency)
-    // OR way slower / reverses (reset progress visibly).
     const harsh = Math.random() < 0.5 ? 0.35 : 1.9;
     this.burnerSpeedMult = harsh;
     this.burnerSpeedUntil = this.time.now + BURNER_NUDGE_DURATION_MS;
@@ -1037,12 +1132,7 @@ export class KitchenScene extends Phaser.Scene {
       repeat: -1,
       duration: 600
     });
-    this.slicks.push({
-      obj: slickEll,
-      x,
-      y,
-      expiresAt: this.time.now + SLICK_LIFETIME_MS
-    });
+    this.slicks.push({ obj: slickEll, x, y, expiresAt: this.time.now + SLICK_LIFETIME_MS });
     gameStore.getState().applySabotage(2, "butter_slick");
   }
 
@@ -1061,7 +1151,6 @@ export class KitchenScene extends Phaser.Scene {
       gameStore.getState().applySabotage(2, "bait_swap_whiff");
       return;
     }
-    // Visually subtle — dull the cooked color slightly so the joke pays off later
     this.panBacon.setFillStyle(0xb89a78);
     gameStore.getState().setBaitSwapped(true);
     gameStore.getState().applySabotage(2, "bait_swap");
@@ -1078,11 +1167,45 @@ export class KitchenScene extends Phaser.Scene {
     this.cameras.main.shake(80, 0.002);
   }
 
+  private applySmokeSignal(): void {
+    // Always ruins active cook AND triggers immediate Herb visit
+    if (this.cookState === "cooking" || this.cookState === "done") {
+      this.cookState = "ruined";
+      this.tweens.killTweensOf(this.panBacon);
+      this.panBacon.setVisible(true).setFillStyle(SAVORYVILLE.skillet500).setAlpha(1);
+      this.cookBarBg.setVisible(false);
+      this.cookBar.setVisible(false);
+      this.ruinedX.setVisible(true);
+    }
+    // Smoke puff visual
+    this.smokePuff
+      .setPosition(this.panContainer.x, this.panContainer.y - 30)
+      .setVisible(true)
+      .setAlpha(0);
+    this.tweens.add({
+      targets: this.smokePuff,
+      alpha: { from: 0, to: 0.95 },
+      y: this.smokePuff.y - 50,
+      duration: 700,
+      ease: "Sine.Out",
+      onComplete: () => {
+        this.tweens.add({
+          targets: this.smokePuff,
+          alpha: 0,
+          duration: 1200,
+          onComplete: () => this.smokePuff.setVisible(false)
+        });
+      }
+    });
+    this.cameras.main.flash(160, 200, 100, 60);
+    gameStore.getState().applySabotage(2, "smoke_signal");
+    gameStore.getState().triggerHerbVisit();
+  }
+
   // === Tier-3 Bacon Run ====================================================
 
   private startBaconRun(): void {
     if (this.cookState !== "done") {
-      // No bacon to grab — small composure tax
       gameStore.getState().applySabotage(1, "bacon_run_whiff");
       return;
     }
@@ -1113,14 +1236,12 @@ export class KitchenScene extends Phaser.Scene {
     }
 
     if (this.hamletState === "bacon_run_grabbing" && d < 8) {
-      // Snatch the bacon
       this.cookState = "empty";
       this.panBacon.setVisible(false);
       this.cookBarBg.setVisible(false);
       this.cookBar.setVisible(false);
       this.ruinedX.setVisible(false);
       this.hamletCarriedBacon.setVisible(true);
-      // Trigger the Heat-maxing tier-3
       gameStore.getState().recordBaconRun();
       this.hamletState = "bacon_run_escaping";
       this.hamletTarget = { x: BACON_RUN_EXIT_X, y: PASS_Y };
@@ -1129,12 +1250,9 @@ export class KitchenScene extends Phaser.Scene {
         .setPosition(this.hamlet.x, this.hamlet.y - 40)
         .setVisible(true);
     } else if (this.hamletState === "bacon_run_escaping" && this.hamlet.x >= W - 10) {
-      // Hamlet escaped with the bacon
       this.hamletTelegraph.setVisible(false);
       this.hamletCarriedBacon.setVisible(false);
-      // Bacon stolen counter is already incremented in recordBaconRun
       gameStore.getState().endChaseClean();
-      // Teleport back to lurk after a beat
       this.hamlet.setPosition(HAMLET_LURK_X, HAMLET_LURK_Y);
       this.hamletState = "lurk";
       this.hamletTarget = { x: HAMLET_LURK_X, y: HAMLET_LURK_Y };
@@ -1153,8 +1271,7 @@ export class KitchenScene extends Phaser.Scene {
     const s = gameStore.getState();
     if (s.currentCustomer) return;
     if (s.customersServed >= s.customersTarget) return;
-    if (this.time.now - this.lastCustomerResolvedAt < NEXT_CUSTOMER_DELAY_MS)
-      return;
+    if (this.time.now - this.lastCustomerResolvedAt < NEXT_CUSTOMER_DELAY_MS) return;
 
     const roll = Math.random();
     const archetype: "regular" | "picky" | "vip" =
@@ -1174,13 +1291,13 @@ export class KitchenScene extends Phaser.Scene {
 
     this.customerContainer = this.add.container(CUSTOMER_X, CUSTOMER_Y);
     const body = this.add
-      .rectangle(0, 0, 50, 70, color)
+      .rectangle(0, 0, 50, 60, color)
       .setStrokeStyle(3, SAVORYVILLE.skillet900);
     const head = this.add
-      .circle(0, -50, 18, SAVORYVILLE.linen300)
+      .circle(0, -45, 18, SAVORYVILLE.linen300)
       .setStrokeStyle(3, SAVORYVILLE.skillet900);
     const label = this.add
-      .text(0, 50, archetype.toUpperCase(), {
+      .text(0, 40, archetype.toUpperCase(), {
         fontFamily: "Fredoka, sans-serif",
         fontSize: "10px",
         color: "#2b201a",
@@ -1191,10 +1308,10 @@ export class KitchenScene extends Phaser.Scene {
     this.customerContainer.setDepth(10);
 
     this.customerPatienceBg = this.add
-      .rectangle(CUSTOMER_X, CUSTOMER_Y - 90, 70, 10, SAVORYVILLE.skillet900)
+      .rectangle(CUSTOMER_X, CUSTOMER_Y - 80, 70, 10, SAVORYVILLE.skillet900)
       .setDepth(11);
     this.customerPatienceFill = this.add
-      .rectangle(CUSTOMER_X - 33, CUSTOMER_Y - 90, 64, 6, SAVORYVILLE.butter500)
+      .rectangle(CUSTOMER_X - 33, CUSTOMER_Y - 80, 64, 6, SAVORYVILLE.butter500)
       .setOrigin(0, 0.5)
       .setDepth(12);
 
@@ -1251,6 +1368,29 @@ export class KitchenScene extends Phaser.Scene {
     this.customerPatienceFill.setFillStyle(color);
   }
 
+  // === Quip Wheel ==========================================================
+
+  private checkQuipWheelTrigger(): void {
+    const s = gameStore.getState();
+    if (s.quipWheelOpen) return;
+    if (!s.currentCustomer) return;
+    if (s.herbVisitState !== "idle") return;
+    if (this.time.now - this.lastQuipAt < QUIP_WHEEL_COOLDOWN_MS) return;
+    if (!this.herb.isInDining()) return;
+    if (Math.abs(this.herb.x - CUSTOMER_X) > HERB_CUSTOMER_PROXIMITY) return;
+    s.setQuipWheel(true, "greet_customer");
+    this.lastQuipAt = this.time.now;
+    this.quipAutoCloseAt = this.time.now + QUIP_WHEEL_AUTOCLOSE_MS;
+  }
+
+  private maybeAutoCloseQuipWheel(): void {
+    const s = gameStore.getState();
+    if (!s.quipWheelOpen) return;
+    if (this.time.now >= this.quipAutoCloseAt) {
+      s.setQuipWheel(false);
+    }
+  }
+
   // === Mode toggle =========================================================
 
   private toggleHamletController(): void {
@@ -1258,7 +1398,6 @@ export class KitchenScene extends Phaser.Scene {
     const next = s.hamletController === "ai" ? "player2" : "ai";
     s.setHamletController(next);
     if (next === "ai") {
-      // Re-arm AI
       this.hamletState = "lurk";
       this.hamletTarget = { x: HAMLET_LURK_X, y: HAMLET_LURK_Y };
       this.scheduleNextSabotage();
@@ -1272,7 +1411,9 @@ export class KitchenScene extends Phaser.Scene {
   private refreshModeBadge(): void {
     const c = gameStore.getState().hamletController;
     this.modeBadge.setText(
-      c === "ai" ? "AI HAMLET  ·  P to toggle" : "P2 HAMLET  ·  arrows + 1-7 / Enter"
+      c === "ai"
+        ? "AI HAMLET  ·  P toggle"
+        : "P2 HAMLET  ·  arrows + 1-8 / Enter"
     );
   }
 }

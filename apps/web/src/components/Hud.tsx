@@ -6,6 +6,7 @@ import {
   composureTier,
   gameStore,
   HEAT_MAX,
+  VIBES_MAX,
   type GameState
 } from "@wnb/game-core";
 
@@ -19,6 +20,8 @@ const selHeat = (s: GameState) => s.heat.value;
 const selChasing = (s: GameState) => s.heat.chasing;
 const selBaconStolen = (s: GameState) => s.baconStolen;
 const selController = (s: GameState) => s.hamletController;
+const selVibes = (s: GameState) => s.vibes;
+const selHerbVisit = (s: GameState) => s.herbVisitState;
 
 export default function Hud() {
   const composure = useStore(gameStore, selComposure);
@@ -31,9 +34,12 @@ export default function Hud() {
   const chasing = useStore(gameStore, selChasing);
   const baconStolen = useStore(gameStore, selBaconStolen);
   const controller = useStore(gameStore, selController);
+  const vibes = useStore(gameStore, selVibes);
+  const herbVisit = useStore(gameStore, selHerbVisit);
 
   const composurePct = (composure / COMPOSURE_MAX) * 100;
   const heatPct = (heat / HEAT_MAX) * 100;
+  const vibesPct = (vibes / VIBES_MAX) * 100;
   const tier = composureTier({ value: composure });
   const composureColor =
     tier === "calm"
@@ -62,11 +68,24 @@ export default function Hud() {
             style={{ width: `${composurePct}%` }}
           />
         </div>
+
+        {/* Vibes meter beneath composure */}
+        <div className="mt-3 flex items-baseline justify-between mb-1">
+          <span className="font-display text-xs text-linen-100/80 drop-shadow">
+            Herb Vibes
+          </span>
+        </div>
+        <div className="h-2 w-full rounded-full bg-skillet-900/80 ring-1 ring-skillet-900 overflow-hidden">
+          <div
+            className="h-full bg-dash-magenta transition-all duration-300"
+            style={{ width: `${vibesPct}%` }}
+          />
+        </div>
       </div>
 
-      {/* Top-right: Hospitality dashboard kitsch */}
-      <div className="absolute top-4 right-4 bg-bacon-900 p-1 shadow-lg">
-        <div className="bg-dash-teal px-3 py-2">
+      {/* Top-right: Hospitality dashboard — full kitsch */}
+      <div className="absolute top-4 right-4 bg-bacon-900 p-1 shadow-xl">
+        <div className="bg-dash-teal px-3 py-2 relative">
           <p className="font-display text-[10px] font-bold uppercase tracking-widest text-linen-100">
             Hospitality
           </p>
@@ -83,6 +102,10 @@ export default function Hud() {
               bacon stolen: {baconStolen}
             </p>
           )}
+          {/* Mascot — thumbs-up pig disc */}
+          <div className="absolute -bottom-3 -right-3 w-12 h-12 rounded-full bg-butter-500 ring-4 ring-skillet-900 flex items-center justify-center shadow-lg">
+            <span className="font-display text-2xl">👍</span>
+          </div>
         </div>
       </div>
 
@@ -94,6 +117,17 @@ export default function Hud() {
           </p>
         </div>
       )}
+
+      {/* Top-center HERB-IN-KITCHEN indicator */}
+      {(herbVisit === "walking_to_kitchen" || herbVisit === "in_kitchen") &&
+        !chasing &&
+        status === "playing" && (
+          <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-butter-500 px-5 py-1.5 border-y-2 border-skillet-900 shadow-lg">
+            <p className="font-display text-sm font-bold text-skillet-900 tracking-wider uppercase">
+              Herb in the kitchen
+            </p>
+          </div>
+        )}
 
       {/* Bottom-left: Heat */}
       {(heat > 0 || chasing) && (
@@ -143,13 +177,13 @@ export default function Hud() {
       )}
 
       {/* Bottom-right controls reminder */}
-      <div className="absolute bottom-4 right-4 max-w-[280px] text-right space-y-1">
+      <div className="absolute bottom-4 right-4 max-w-[300px] text-right space-y-1">
         <p className="text-[10px] font-dashboard uppercase tracking-widest text-linen-300/80">
           P1 Chris: WASD · E interact · Q wipe · X slam
         </p>
         {controller === "player2" ? (
           <p className="text-[10px] font-dashboard uppercase tracking-widest text-butter-300/90">
-            P2 Hamlet: arrows · 1 salt · 2 plates · 3 slick · 4 fake · 5 reset · 6 swap · 7 burner · Enter run
+            P2 Hamlet: arrows · 1-8 sabotage · Enter Bacon Run
           </p>
         ) : (
           <p className="text-[10px] font-dashboard uppercase tracking-widest text-linen-300/60">

@@ -24,8 +24,12 @@ export {
 } from "./scoring/heat";
 export {
   gameStore,
+  VIBES_DEFAULT,
+  VIBES_MAX,
+  VIBES_MIN,
   type GameState,
-  type HamletController
+  type HamletController,
+  type HerbVisitState
 } from "./store/gameStore";
 export {
   TIP_BASE,

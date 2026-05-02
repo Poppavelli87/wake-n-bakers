@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { gameStore } from "./gameStore";
+import { gameStore, VIBES_DEFAULT, VIBES_MAX, VIBES_MIN } from "./gameStore";
 import { COMPOSURE_MAX } from "../scoring/composure";
 import { HEAT_MAX } from "../scoring/heat";
 
@@ -166,5 +166,77 @@ describe("gameStore", () => {
     s.endChaseClean();
     expect(gameStore.getState().heat.value).toBe(0);
     expect(gameStore.getState().heat.chasing).toBe(false);
+  });
+
+  // === Sprint 4 — Herb mode ===
+
+  it("vibes start at default and clamp to [0, 100]", () => {
+    expect(gameStore.getState().vibes).toBe(VIBES_DEFAULT);
+    gameStore.getState().adjustVibes(200);
+    expect(gameStore.getState().vibes).toBe(VIBES_MAX);
+    gameStore.getState().adjustVibes(-500);
+    expect(gameStore.getState().vibes).toBe(VIBES_MIN);
+  });
+
+  it("herbVisitState transitions and tracks startedAt", () => {
+    const s = gameStore.getState();
+    expect(s.herbVisitState).toBe("idle");
+    expect(s.herbVisitStartedAt).toBeNull();
+    s.setHerbVisitState("walking_to_kitchen");
+    expect(gameStore.getState().herbVisitStartedAt).not.toBeNull();
+    s.setHerbVisitState("idle");
+    expect(gameStore.getState().herbVisitStartedAt).toBeNull();
+  });
+
+  it("triggerHerbVisit sets the pending flag for the scene to consume", () => {
+    expect(gameStore.getState().pendingHerbVisitTrigger).toBe(false);
+    gameStore.getState().triggerHerbVisit();
+    expect(gameStore.getState().pendingHerbVisitTrigger).toBe(true);
+    gameStore.getState().acknowledgeHerbVisit();
+    expect(gameStore.getState().pendingHerbVisitTrigger).toBe(false);
+  });
+
+  it("setQuipWheel toggles open + context, closing clears context", () => {
+    const s = gameStore.getState();
+    s.setQuipWheel(true, "greet_customer");
+    let st = gameStore.getState();
+    expect(st.quipWheelOpen).toBe(true);
+    expect(st.quipWheelContext).toBe("greet_customer");
+    s.setQuipWheel(false);
+    st = gameStore.getState();
+    expect(st.quipWheelOpen).toBe(false);
+    expect(st.quipWheelContext).toBeNull();
+  });
+
+  it("recordQuip applies vibes delta + hospitality scaled by vibes multiplier", () => {
+    const s = gameStore.getState();
+    s.startShift(5);
+    // High vibes -> hospitality boosted slightly
+    s.adjustVibes(50); // 100 vibes
+    const before = gameStore.getState().hospitality;
+    s.recordQuip("greet_customer", "warm_welcome", 10, 5);
+    const after = gameStore.getState();
+    // 1.15x at max vibes -> 11 or 12
+    expect(after.hospitality).toBeGreaterThan(before);
+    expect(after.hospitality - before).toBeLessThanOrEqual(15);
+    // wheel auto-closes
+    expect(after.quipWheelOpen).toBe(false);
+  });
+
+  it("recordQuip vibes multiplier penalizes low vibes", () => {
+    const s = gameStore.getState();
+    s.startShift(5);
+    s.adjustVibes(-50); // 0 vibes
+    s.recordQuip("greet_customer", "warm_welcome", 10, 0);
+    const after = gameStore.getState();
+    // 0.85x at min vibes -> 8 or 9
+    expect(after.hospitality).toBeLessThan(10);
+  });
+
+  it("vibes reset to default on shift restart", () => {
+    const s = gameStore.getState();
+    s.adjustVibes(40);
+    s.startShift(5);
+    expect(gameStore.getState().vibes).toBe(VIBES_DEFAULT);
   });
 });

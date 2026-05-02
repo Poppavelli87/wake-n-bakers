@@ -10,6 +10,7 @@ import {
   applyHeatGain,
   type HeatState
 } from "../scoring/heat";
+import { clamp } from "../util/clamp";
 import {
   TIP_BASE,
   type CustomerArchetype,
@@ -19,6 +20,16 @@ import {
 } from "../shift/shiftState";
 
 export type HamletController = "ai" | "player2";
+
+export type HerbVisitState =
+  | "idle"
+  | "walking_to_kitchen"
+  | "in_kitchen"
+  | "returning";
+
+export const VIBES_MIN = 0;
+export const VIBES_MAX = 100;
+export const VIBES_DEFAULT = 50;
 
 export interface GameState {
   status: GameStatus;
@@ -39,6 +50,16 @@ export interface GameState {
   // a swapped serve looks identical until the customer rejects it.
   baitSwapped: boolean;
 
+  // Sprint 4 additions — Herb mode
+  vibes: number; // Herb's Vibes meter (0-100). Soft amplifier on hospitality.
+  herbVisitState: HerbVisitState;
+  herbVisitStartedAt: number | null;
+  // smoke_signal flips this; the scene reads + clears it to trigger an immediate Herb visit
+  pendingHerbVisitTrigger: boolean;
+  // Quip Wheel UI state — bridge between Phaser scene and React HUD
+  quipWheelOpen: boolean;
+  quipWheelContext: string | null;
+
   // actions — kept on the same shape so Phaser scenes can call them via
   // gameStore.getState().<action>(...) without a separate dispatcher
   startShift: (target: number) => void;
@@ -55,6 +76,19 @@ export interface GameState {
   setBaitSwapped: (v: boolean) => void;
   recordBaconRun: () => void;
   endChaseClean: () => void;
+
+  // Sprint 4 actions
+  adjustVibes: (delta: number) => void;
+  setHerbVisitState: (s: HerbVisitState) => void;
+  triggerHerbVisit: () => void;
+  acknowledgeHerbVisit: () => void;
+  setQuipWheel: (open: boolean, context?: string | null) => void;
+  recordQuip: (
+    contextKey: string,
+    optionId: string,
+    hospitality: number,
+    vibesDelta: number
+  ) => void;
 }
 
 type InitialFields = Omit<
@@ -71,6 +105,12 @@ type InitialFields = Omit<
   | "setBaitSwapped"
   | "recordBaconRun"
   | "endChaseClean"
+  | "adjustVibes"
+  | "setHerbVisitState"
+  | "triggerHerbVisit"
+  | "acknowledgeHerbVisit"
+  | "setQuipWheel"
+  | "recordQuip"
 >;
 
 // hamletController is sticky across reset() — the player's choice of
@@ -86,7 +126,13 @@ const INITIAL_RESETTABLE: Omit<InitialFields, "hamletController"> = {
   baconStolen: 0,
   currentCustomer: null,
   log: [],
-  baitSwapped: false
+  baitSwapped: false,
+  vibes: VIBES_DEFAULT,
+  herbVisitState: "idle",
+  herbVisitStartedAt: null,
+  pendingHerbVisitTrigger: false,
+  quipWheelOpen: false,
+  quipWheelContext: null
 };
 
 function makeId(prefix: string): string {
@@ -236,6 +282,65 @@ export const gameStore = createStore<GameState>((set, get) => ({
     set({
       heat: { value: 0, chasing: false },
       log: [...s.log, { at: Date.now(), kind: "chase_ended_clean" }]
+    });
+  },
+
+  // === Sprint 4 — Herb mode ===
+
+  adjustVibes: (delta) => {
+    const s = get();
+    const next = clamp(s.vibes + delta, VIBES_MIN, VIBES_MAX);
+    set({ vibes: next });
+  },
+
+  setHerbVisitState: (state) => {
+    const s = get();
+    set({
+      herbVisitState: state,
+      herbVisitStartedAt:
+        state === "walking_to_kitchen" || state === "in_kitchen"
+          ? s.herbVisitStartedAt ?? Date.now()
+          : state === "idle"
+          ? null
+          : s.herbVisitStartedAt
+    });
+  },
+
+  triggerHerbVisit: () => {
+    set({ pendingHerbVisitTrigger: true });
+  },
+
+  acknowledgeHerbVisit: () => {
+    set({ pendingHerbVisitTrigger: false });
+  },
+
+  setQuipWheel: (open, context = null) => {
+    set({
+      quipWheelOpen: open,
+      quipWheelContext: open ? context : null
+    });
+  },
+
+  recordQuip: (contextKey, optionId, hospitalityGain, vibesDelta) => {
+    const s = get();
+    if (s.status !== "playing") return;
+    const vibes = clamp(s.vibes + vibesDelta, VIBES_MIN, VIBES_MAX);
+    // Vibes amplify hospitality slightly: +/-15% at the extremes
+    const vibesMult = 0.85 + (vibes / VIBES_MAX) * 0.3;
+    const hospitalityFinal = Math.round(hospitalityGain * vibesMult);
+    set({
+      hospitality: s.hospitality + hospitalityFinal,
+      vibes,
+      quipWheelOpen: false,
+      quipWheelContext: null,
+      log: [
+        ...s.log,
+        {
+          at: Date.now(),
+          kind: "quip",
+          meta: { contextKey, optionId, hospitalityFinal, vibes }
+        }
+      ]
     });
   }
 }));
