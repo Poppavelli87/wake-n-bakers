@@ -22,7 +22,11 @@ export {
   HEAT_MIN,
   type HeatState
 } from "./scoring/heat";
-export { gameStore, type GameState } from "./store/gameStore";
+export {
+  gameStore,
+  type GameState,
+  type HamletController
+} from "./store/gameStore";
 export {
   TIP_BASE,
   type CustomerArchetype,

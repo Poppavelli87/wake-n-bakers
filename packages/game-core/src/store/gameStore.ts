@@ -18,6 +18,8 @@ import {
   type GameStatus
 } from "../shift/shiftState";
 
+export type HamletController = "ai" | "player2";
+
 export interface GameState {
   status: GameStatus;
   shiftStartedAt: number | null;
@@ -30,6 +32,13 @@ export interface GameState {
   currentCustomer: CustomerState | null;
   log: GameLogEntry[];
 
+  // Sprint 3 additions
+  hamletController: HamletController;
+  // Set true when bait_swap replaces cooked bacon. Cleared by serve/expire/reset.
+  // Plumbing for the canon "Hamlet wins through Chris's downfall" rule:
+  // a swapped serve looks identical until the customer rejects it.
+  baitSwapped: boolean;
+
   // actions — kept on the same shape so Phaser scenes can call them via
   // gameStore.getState().<action>(...) without a separate dispatcher
   startShift: (target: number) => void;
@@ -40,6 +49,12 @@ export interface GameState {
   expireCurrentCustomer: () => void;
   tickPatience: (dtSeconds: number) => void;
   reset: () => void;
+
+  // Sprint 3 actions
+  setHamletController: (c: HamletController) => void;
+  setBaitSwapped: (v: boolean) => void;
+  recordBaconRun: () => void;
+  endChaseClean: () => void;
 }
 
 type InitialFields = Omit<
@@ -52,9 +67,15 @@ type InitialFields = Omit<
   | "expireCurrentCustomer"
   | "tickPatience"
   | "reset"
+  | "setHamletController"
+  | "setBaitSwapped"
+  | "recordBaconRun"
+  | "endChaseClean"
 >;
 
-const INITIAL: InitialFields = {
+// hamletController is sticky across reset() — the player's choice of
+// AI vs hotseat shouldn't reset on meltdown
+const INITIAL_RESETTABLE: Omit<InitialFields, "hamletController"> = {
   status: "idle",
   shiftStartedAt: null,
   composure: { value: COMPOSURE_MAX },
@@ -64,7 +85,8 @@ const INITIAL: InitialFields = {
   customersTarget: 5,
   baconStolen: 0,
   currentCustomer: null,
-  log: []
+  log: [],
+  baitSwapped: false
 };
 
 function makeId(prefix: string): string {
@@ -75,15 +97,17 @@ function makeId(prefix: string): string {
 }
 
 export const gameStore = createStore<GameState>((set, get) => ({
-  ...INITIAL,
+  ...INITIAL_RESETTABLE,
+  hamletController: "ai" as HamletController,
 
   startShift: (target) =>
-    set({
-      ...INITIAL,
+    set((s) => ({
+      ...INITIAL_RESETTABLE,
+      hamletController: s.hamletController,
       status: "playing",
       shiftStartedAt: Date.now(),
       customersTarget: target
-    }),
+    })),
 
   cookSuccess: () => {
     const s = get();
@@ -123,6 +147,22 @@ export const gameStore = createStore<GameState>((set, get) => ({
   serveCurrentCustomer: () => {
     const s = get();
     if (s.status !== "playing" || !s.currentCustomer) return;
+
+    // Bait swap path: customer rejects the rubber decoy. Doesn't count
+    // toward target; eats composure; clears the swap flag.
+    if (s.baitSwapped) {
+      const composure = applyDrain(s.composure, 2);
+      const status: GameStatus = isMeltdown(composure) ? "meltdown" : s.status;
+      set({
+        composure,
+        currentCustomer: null,
+        baitSwapped: false,
+        status,
+        log: [...s.log, { at: Date.now(), kind: "customer_rejected_decoy" }]
+      });
+      return;
+    }
+
     const newCount = s.customersServed + 1;
     const tipBase = TIP_BASE[s.currentCustomer.archetype];
     const tipMod = Math.max(
@@ -171,5 +211,31 @@ export const gameStore = createStore<GameState>((set, get) => ({
     });
   },
 
-  reset: () => set({ ...INITIAL })
+  reset: () =>
+    set((s) => ({ ...INITIAL_RESETTABLE, hamletController: s.hamletController })),
+
+  setHamletController: (c) => set({ hamletController: c }),
+
+  setBaitSwapped: (v) => set({ baitSwapped: v }),
+
+  recordBaconRun: () => {
+    const s = get();
+    if (s.status !== "playing") return;
+    // Tier-3 sabotage maxes Heat and starts the chase
+    set({
+      baconStolen: s.baconStolen + 1,
+      heat: applyHeatGain(s.heat, 3),
+      composure: applyDrain(s.composure, 3),
+      status: isMeltdown(applyDrain(s.composure, 3)) ? "meltdown" : s.status,
+      log: [...s.log, { at: Date.now(), kind: "bacon_run" }]
+    });
+  },
+
+  endChaseClean: () => {
+    const s = get();
+    set({
+      heat: { value: 0, chasing: false },
+      log: [...s.log, { at: Date.now(), kind: "chase_ended_clean" }]
+    });
+  }
 }));

@@ -5,6 +5,7 @@ import {
   COMPOSURE_MAX,
   composureTier,
   gameStore,
+  HEAT_MAX,
   type GameState
 } from "@wnb/game-core";
 
@@ -15,6 +16,9 @@ const selHospitality = (s: GameState) => s.hospitality;
 const selServed = (s: GameState) => s.customersServed;
 const selTarget = (s: GameState) => s.customersTarget;
 const selHeat = (s: GameState) => s.heat.value;
+const selChasing = (s: GameState) => s.heat.chasing;
+const selBaconStolen = (s: GameState) => s.baconStolen;
+const selController = (s: GameState) => s.hamletController;
 
 export default function Hud() {
   const composure = useStore(gameStore, selComposure);
@@ -24,8 +28,12 @@ export default function Hud() {
   const served = useStore(gameStore, selServed);
   const target = useStore(gameStore, selTarget);
   const heat = useStore(gameStore, selHeat);
+  const chasing = useStore(gameStore, selChasing);
+  const baconStolen = useStore(gameStore, selBaconStolen);
+  const controller = useStore(gameStore, selController);
 
   const composurePct = (composure / COMPOSURE_MAX) * 100;
+  const heatPct = (heat / HEAT_MAX) * 100;
   const tier = composureTier({ value: composure });
   const composureColor =
     tier === "calm"
@@ -70,19 +78,33 @@ export default function Hud() {
               {served}/{target} served
             </span>
           </div>
+          {baconStolen > 0 && (
+            <p className="font-dashboard text-[10px] text-linen-100/80 mt-1">
+              bacon stolen: {baconStolen}
+            </p>
+          )}
         </div>
       </div>
 
-      {/* Bottom-left: Heat (Hamlet's risk — visible to player as a tell) */}
-      {heat > 0 && (
+      {/* Top-center CHASE banner */}
+      {chasing && status === "playing" && (
+        <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-bacon-700 px-6 py-2 border-y-4 border-skillet-900 shadow-lg animate-pulse">
+          <p className="font-display text-2xl font-bold text-linen-100 tracking-widest">
+            CHASE — X to pan slam
+          </p>
+        </div>
+      )}
+
+      {/* Bottom-left: Heat */}
+      {(heat > 0 || chasing) && (
         <div className="absolute bottom-4 left-4 w-48">
           <div className="font-display text-xs font-semibold text-linen-100 mb-1 drop-shadow">
-            Hamlet Heat
+            Hamlet Heat {chasing && <span className="text-bacon-300">· CHASING</span>}
           </div>
           <div className="h-2 w-full rounded-full bg-skillet-900/80 ring-1 ring-skillet-900 overflow-hidden">
             <div
-              className="h-full bg-bacon-500 transition-all"
-              style={{ width: `${heat}%` }}
+              className={`h-full transition-all ${chasing ? "bg-bacon-500" : "bg-sizzle-500"}`}
+              style={{ width: `${heatPct}%` }}
             />
           </div>
         </div>
@@ -115,14 +137,25 @@ export default function Hud() {
       {status === "shift_complete" && (
         <CenterOverlay
           title="SHIFT COMPLETE"
-          subtitle={`Hospitality ${hospitality}  ·  ${served} served`}
+          subtitle={`Hospitality ${hospitality}  ·  ${served} served${baconStolen ? `  ·  ${baconStolen} bacon stolen` : ""}`}
           tone="butter"
         />
       )}
 
       {/* Bottom-right controls reminder */}
-      <div className="absolute bottom-4 right-4 text-[10px] font-dashboard uppercase tracking-widest text-linen-300/70">
-        WASD move · E interact · R restart · Esc back
+      <div className="absolute bottom-4 right-4 max-w-[280px] text-right space-y-1">
+        <p className="text-[10px] font-dashboard uppercase tracking-widest text-linen-300/80">
+          P1 Chris: WASD · E interact · Q wipe · X slam
+        </p>
+        {controller === "player2" ? (
+          <p className="text-[10px] font-dashboard uppercase tracking-widest text-butter-300/90">
+            P2 Hamlet: arrows · 1 salt · 2 plates · 3 slick · 4 fake · 5 reset · 6 swap · 7 burner · Enter run
+          </p>
+        ) : (
+          <p className="text-[10px] font-dashboard uppercase tracking-widest text-linen-300/60">
+            P toggle 2P · R restart · Esc back
+          </p>
+        )}
       </div>
     </div>
   );

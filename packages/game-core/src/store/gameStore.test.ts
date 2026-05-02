@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { gameStore } from "./gameStore";
 import { COMPOSURE_MAX } from "../scoring/composure";
+import { HEAT_MAX } from "../scoring/heat";
 
 describe("gameStore", () => {
   beforeEach(() => {
+    // Reset everything including controller for test isolation
+    gameStore.getState().setHamletController("ai");
     gameStore.getState().reset();
   });
 
@@ -102,5 +105,66 @@ describe("gameStore", () => {
     s.spawnCustomer("regular", 5);
     s.expireCurrentCustomer();
     expect(gameStore.getState().status).toBe("meltdown");
+  });
+
+  // === Sprint 3 additions ===
+
+  it("hamletController toggles between AI and player2 and survives reset", () => {
+    gameStore.getState().setHamletController("player2");
+    expect(gameStore.getState().hamletController).toBe("player2");
+    gameStore.getState().reset();
+    expect(gameStore.getState().hamletController).toBe("player2");
+    gameStore.getState().setHamletController("ai");
+    expect(gameStore.getState().hamletController).toBe("ai");
+  });
+
+  it("startShift preserves hamletController across resets", () => {
+    gameStore.getState().setHamletController("player2");
+    gameStore.getState().startShift(5);
+    expect(gameStore.getState().hamletController).toBe("player2");
+  });
+
+  it("bait_swap path: serving a swapped item rejects, no hospitality, composure damage", () => {
+    const s = gameStore.getState();
+    s.startShift(5);
+    s.spawnCustomer("regular", 60);
+    s.setBaitSwapped(true);
+    const before = gameStore.getState().composure.value;
+    s.serveCurrentCustomer();
+    const after = gameStore.getState();
+    expect(after.customersServed).toBe(0); // rejected, doesn't count
+    expect(after.hospitality).toBe(0);
+    expect(after.composure.value).toBeLessThan(before);
+    expect(after.baitSwapped).toBe(false); // cleared after rejection
+    expect(after.currentCustomer).toBeNull();
+  });
+
+  it("bait_swap clears on shift restart", () => {
+    const s = gameStore.getState();
+    s.startShift(5);
+    s.setBaitSwapped(true);
+    s.startShift(5);
+    expect(gameStore.getState().baitSwapped).toBe(false);
+  });
+
+  it("recordBaconRun increments baconStolen, maxes Heat, starts chase, drains composure", () => {
+    const s = gameStore.getState();
+    s.startShift(5);
+    s.recordBaconRun();
+    const after = gameStore.getState();
+    expect(after.baconStolen).toBe(1);
+    expect(after.heat.value).toBe(HEAT_MAX);
+    expect(after.heat.chasing).toBe(true);
+    expect(after.composure.value).toBeLessThan(COMPOSURE_MAX);
+  });
+
+  it("endChaseClean resets heat and clears chase", () => {
+    const s = gameStore.getState();
+    s.startShift(5);
+    s.recordBaconRun();
+    expect(gameStore.getState().heat.chasing).toBe(true);
+    s.endChaseClean();
+    expect(gameStore.getState().heat.value).toBe(0);
+    expect(gameStore.getState().heat.chasing).toBe(false);
   });
 });
