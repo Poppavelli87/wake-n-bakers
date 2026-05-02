@@ -9,7 +9,8 @@ export {
   COMPOSURE_MIN,
   COMPOSURE_RECOVER_COOK,
   COMPOSURE_RECOVER_COVER,
-  type ComposureState
+  type ComposureState,
+  type ComposureTier
 } from "./scoring/composure";
 export {
   applyHeatGain,
@@ -21,3 +22,11 @@ export {
   HEAT_MIN,
   type HeatState
 } from "./scoring/heat";
+export { gameStore, type GameState } from "./store/gameStore";
+export {
+  TIP_BASE,
+  type CustomerArchetype,
+  type CustomerState,
+  type GameLogEntry,
+  type GameStatus
+} from "./shift/shiftState";

@@ -12,13 +12,18 @@ const PhaserGame = dynamic(() => import("@/components/PhaserGame"), {
   )
 });
 
+const Hud = dynamic(() => import("@/components/Hud"), {
+  ssr: false
+});
+
 export default function PlayPage() {
   return (
     <main className="w-screen h-screen overflow-hidden bg-skillet-900 relative">
       <PhaserGame />
+      <Hud />
       <Link
         href="/"
-        className="absolute top-4 left-4 z-10 px-3 py-1.5 rounded-full bg-linen-100/90 text-skillet-900 font-display text-sm hover:bg-butter-500 transition-colors"
+        className="absolute top-1/2 -translate-y-1/2 left-2 z-30 px-2 py-1 rounded-full bg-linen-100/80 text-skillet-900 font-dashboard text-[10px] uppercase tracking-widest hover:bg-butter-500 transition-colors pointer-events-auto"
       >
         ← Back
       </Link>

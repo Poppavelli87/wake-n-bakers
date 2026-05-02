@@ -1,3 +1,3 @@
 export { createGame } from "./createGame";
-export { HelloSavoryvilleScene } from "./scenes/HelloSavoryville";
+export { KitchenScene } from "./scenes/KitchenScene";
 export { SAVORYVILLE } from "./palette";

@@ -127,6 +127,10 @@ importers:
         version: 5.9.3
 
   packages/game-core:
+    dependencies:
+      zustand:
+        specifier: ^5.0.2
+        version: 5.0.12(@types/react@19.2.14)(react@19.2.5)
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^2.1.8
